@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Love Android Workshop Manifest Helper v9
+Love Android Workshop Manifest Helper v10
 I made this script with ChatGPT to help compile mods. If you encounter any issue with it please contact me on discord.
 """
 
@@ -41,6 +41,10 @@ EYES_FOLDERS = ["Eyes", "Pupils"]
 PUBIC_HAIR_FOLDERS = ["PubicHair", "Pubic Hair"]
 
 MULTIPART_CONFIG = {
+    "Head": {
+        "manifest_key": "head",
+        "folders": ["Head", "Heads"],
+    },
     "Hair": {
         "manifest_key": "hair",
         "folders": ["Hair"],
@@ -59,7 +63,7 @@ MULTIPART_CONFIG = {
     },
 }
 
-TAB_ORDER = ["Eyes", "PubicHair", "Hair", "Body", "ClothTop", "ClothBottom"]
+TAB_ORDER = ["Eyes", "PubicHair", "Head", "Hair", "Body", "ClothTop", "ClothBottom"]
 
 MULTIPART_SIZE_VARIANTS = ("Small", "Medium", "Big")
 SIZE_VARIANT_CATEGORIES = {"Body", "ClothTop"}
@@ -83,6 +87,51 @@ def to_posix_relative(path: Path, root: Path) -> str:
 
 def valid_id(value: str) -> bool:
     return bool(VALID_ID_RE.fullmatch(value or ""))
+
+
+def parse_compatible_bodies_text(value: str) -> List[str]:
+    result: List[str] = []
+    seen = set()
+
+    for raw in re.split(r"[,;\n]+", value or ""):
+        token = raw.strip()
+
+        if not token:
+            continue
+
+        folded = token.casefold()
+
+        if folded in seen:
+            continue
+
+        seen.add(folded)
+        result.append(token)
+
+    return result
+
+
+def format_compatible_bodies(value) -> str:
+    if not isinstance(value, list):
+        return ""
+
+    return ", ".join(
+        str(item).strip()
+        for item in value
+        if str(item).strip()
+    )
+
+
+def valid_compatible_body(value: str) -> bool:
+    token = (value or "").strip()
+
+    if token == "*":
+        return True
+
+    if ":" not in token:
+        return valid_id(token)
+
+    mod_id, body_id = token.split(":", 1)
+    return valid_id(mod_id) and valid_id(body_id)
 
 
 def normalize_part_stem(file_stem: str, resource_id: str) -> str:
@@ -601,6 +650,7 @@ class MultipartResourceData:
     resource_id: str
     name_var: tk.StringVar
     fixed_var: tk.BooleanVar
+    compatible_bodies_var: Optional[tk.StringVar] = None
     poses: List[MultipartPoseData] = field(default_factory=list)
 
 
@@ -1612,6 +1662,11 @@ class ManifestHelperApp(tk.Tk):
                     resource_id=resource_id,
                     name_var=tk.StringVar(value=str(meta_source.get("name", resource_id))),
                     fixed_var=tk.BooleanVar(value=bool(meta_source.get("isFixedColor", False))),
+                    compatible_bodies_var=(
+                        tk.StringVar(value=format_compatible_bodies(meta_source.get("compatibleBodies", [])))
+                        if category == "Head"
+                        else None
+                    ),
                 )
 
                 direct_pngs = sorted(resource_dir.glob("*.png"), key=lambda path: natural_key(path.name))
@@ -1676,6 +1731,11 @@ class ManifestHelperApp(tk.Tk):
                 resource_id=resource_id,
                 name_var=tk.StringVar(value=str(old_full.get("name", resource_id))),
                 fixed_var=tk.BooleanVar(value=bool(old_full.get("isFixedColor", False))),
+                compatible_bodies_var=(
+                    tk.StringVar(value=format_compatible_bodies(old_full.get("compatibleBodies", [])))
+                    if category == "Head"
+                    else None
+                ),
             )
 
             self._inject_manifest_only_shared_poses(resource, category)
@@ -2396,6 +2456,17 @@ class ManifestHelperApp(tk.Tk):
             padding=(8, 2),
         ).pack(anchor="w")
 
+        if category == "Head":
+            ttk.Label(
+                parent,
+                text=(
+                    "Head compatibility: use official body keys such as V1/V2, a body resource ID "
+                    "for a body in the same mod (for example PuppetBody), "
+                    "OtherModId:BodyId for another mod, or * for every body."
+                ),
+                padding=(8, 2),
+            ).pack(anchor="w")
+
         if category in SIZE_VARIANT_CATEGORIES:
             ttk.Label(
                 parent,
@@ -2429,6 +2500,20 @@ class ManifestHelperApp(tk.Tk):
             ttk.Label(props, text="Display name").pack(side="left")
             ttk.Entry(props, textvariable=resource.name_var, width=28).pack(side="left", padx=(6, 14))
             ttk.Checkbutton(props, text="Fixed color", variable=resource.fixed_var).pack(side="left")
+
+            if category == "Head" and resource.compatible_bodies_var is not None:
+                compatibility = ttk.Frame(box)
+                compatibility.pack(fill="x", pady=(0, 6))
+
+                ttk.Label(compatibility, text="Compatible bodies").pack(side="left")
+                ttk.Entry(
+                    compatibility,
+                    textvariable=resource.compatible_bodies_var,
+                ).pack(side="left", fill="x", expand=True, padx=(6, 8))
+                ttk.Label(
+                    compatibility,
+                    text="V1, V2, PuppetBody, OtherMod:BodyId, or *",
+                ).pack(side="left")
 
             ttk.Button(
                 props,
@@ -2786,14 +2871,22 @@ class ManifestHelperApp(tk.Tk):
                         }
                     )
 
-                resources_json.append(
-                    {
-                        "id": resource.resource_id,
-                        "name": resource.name_var.get().strip() or resource.resource_id,
-                        "isFixedColor": bool(resource.fixed_var.get()),
-                        "poses": poses_json,
-                    }
-                )
+                resource_json = {
+                    "id": resource.resource_id,
+                    "name": resource.name_var.get().strip() or resource.resource_id,
+                    "isFixedColor": bool(resource.fixed_var.get()),
+                    "poses": poses_json,
+                }
+
+                if category == "Head":
+                    compatible_text = (
+                        resource.compatible_bodies_var.get()
+                        if resource.compatible_bodies_var is not None
+                        else ""
+                    )
+                    resource_json["compatibleBodies"] = parse_compatible_bodies_text(compatible_text)
+
+                resources_json.append(resource_json)
 
             content[cfg["manifest_key"]] = resources_json
 
@@ -2902,6 +2995,31 @@ class ManifestHelperApp(tk.Tk):
             for resource in resources:
                 total_resources += 1
                 self._validate_resource_id(category, resource.resource_id, seen_ids, errors)
+
+                if category == "Head":
+                    compatible_text = (
+                        resource.compatible_bodies_var.get()
+                        if resource.compatible_bodies_var is not None
+                        else ""
+                    )
+                    compatible_bodies = parse_compatible_bodies_text(compatible_text)
+
+                    if not compatible_bodies:
+                        errors.append(
+                            f"Head/{resource.resource_id}: compatibleBodies must contain at least one body or '*'."
+                        )
+                    else:
+                        for body_ref in compatible_bodies:
+                            if not valid_compatible_body(body_ref):
+                                errors.append(
+                                    f"Head/{resource.resource_id}: invalid compatible body '{body_ref}'. "
+                                    "Use V1/V2, SameModBodyId, OtherModId:BodyId, or *."
+                                )
+
+                        if "*" in compatible_bodies and len(compatible_bodies) > 1:
+                            warnings.append(
+                                f"Head/{resource.resource_id}: '*' already matches every body; other compatibleBodies entries are redundant."
+                            )
 
                 seen_poses = set()
 
