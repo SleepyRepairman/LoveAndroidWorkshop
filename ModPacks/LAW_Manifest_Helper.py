@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Love Android Workshop Manifest Helper v10
+Love Android Workshop Manifest Helper v11
 I made this script with ChatGPT to help compile mods. If you encounter any issue with it please contact me on discord.
 """
 
@@ -61,12 +61,28 @@ MULTIPART_CONFIG = {
         "manifest_key": "clothesBottom",
         "folders": ["ClothBottom", "ClothesBottom", "Bottom"],
     },
+    "UnderwearTop": {
+        "manifest_key": "underwearTop",
+        "folders": ["UnderwearTop", "UnderwearsTop"],
+    },
+    "UnderwearBottom": {
+        "manifest_key": "underwearBottom",
+        "folders": ["UnderwearBottom", "UnderwearsBottom"],
+    },
+    "Socks": {
+        "manifest_key": "socks",
+        "folders": ["Socks", "Sock"],
+    },
+    "Shoes": {
+        "manifest_key": "shoes",
+        "folders": ["Shoes", "Shoe"],
+    },
 }
 
-TAB_ORDER = ["Eyes", "PubicHair", "Head", "Hair", "Body", "ClothTop", "ClothBottom"]
+TAB_ORDER = ["Eyes", "PubicHair", "Head", "Hair", "Body", "ClothTop", "ClothBottom", "UnderwearTop", "UnderwearBottom", "Socks", "Shoes"]
 
 MULTIPART_SIZE_VARIANTS = ("Small", "Medium", "Big")
-SIZE_VARIANT_CATEGORIES = {"Body", "ClothTop"}
+SIZE_VARIANT_CATEGORIES = {"Body", "ClothTop", "UnderwearTop"}
 
 MULTIPART_CANVAS_WIDTH = 4000
 MULTIPART_CANVAS_HEIGHT = 4000
@@ -1750,7 +1766,7 @@ class ManifestHelperApp(tk.Tk):
     def _inject_manifest_only_shared_poses(self, resource: MultipartResourceData, category: str):
         """
         Keep poses that exist only in mod.json, including shared poses and
-        Body / ClothTop parts that use size variants.
+        Body / ClothTop / UnderwearTop parts that use size variants.
         """
         existing_resource_map = self._existing_multipart_resource_map(category)
         old_full = existing_resource_map.get(resource.resource_id.casefold())
@@ -1863,7 +1879,7 @@ class ManifestHelperApp(tk.Tk):
     ) -> MultipartPoseData:
         pose = MultipartPoseData(pose_id=pose_id)
 
-        # Body and ClothTop support body-size variants. Body additionally
+        # Body, ClothTop and UnderwearTop support body-size variants. Body additionally
         # supports visual variations using -Variation after the optional size:
         # BodyV1_Small-Turn.png -> logical part Body-Turn, size Small.
         if category in SIZE_VARIANT_CATEGORIES:
@@ -2014,7 +2030,7 @@ class ManifestHelperApp(tk.Tk):
 
             return pose
 
-        # Hair and ClothBottom keep the original one-file-per-part flow.
+        # Other multipart categories use the original one-file-per-part flow.
         for png in pngs:
             relative = to_posix_relative(png, self.root_path)
             stem = png.stem
