@@ -1,0 +1,142 @@
+Full list of template names.
+
+===== Hair =====
+--- Default ---
+HairBackShort
+HairFrontShort
+or
+HairBackLong
+HairFrontLong
+
+--- Armpit ---
+HairBackShort
+HairFrontShort
+or
+HairBackLong
+HairFrontLong
+
+--- Kneeling ---
+HairBackShort
+HairFrontShort
+or
+HairBackLong
+HairFrontLong
+
+--- Bend over ---
+HairBackShort
+HairFrontShort
+HairFrontTopShort
+or
+HairBackLong
+HairFrontLong
+HairFrontTopLong
+
+--- Spread legs ---
+HairBackShort
+HairFrontShort
+or
+HairBackLong
+HairFrontLong
+
+--- Boob hold ---
+HairBackShort
+HairFrontShort
+or
+HairBackLong
+HairFrontLong
+
+
+===== Body =====
+--- Default ---
+Body
+Arms
+
+--- Armpit ---
+Body
+ArmRight
+ArmLeft
+
+--- Kneeling ---
+Body
+Arms
+Legs
+
+--- Bend over ---
+Body
+Neck
+Pussy
+Body-Lower
+Pussy-Open
+
+--- Spread legs ---
+Body
+LowerBody
+Pussy
+LegRight
+LegLeft
+FeetRight
+FeetLeft
+ToesRight
+ToesLeft
+
+--- Boob hold ---
+Body
+ArmRight
+ArmLeft
+HandRight
+HandLeft
+BoobRight
+BoobLeft
+
+
+===== Head =====
+--- Default ---
+Head
+
+--- Armpit ---
+Head
+
+--- Kneeling ---
+Head
+MouthCover
+
+--- Bend over ---
+Head
+
+--- Spread legs ---
+Head
+
+--- Boob hold ---
+Head
+
+
+===== ClothTop =====
+--- Default ---
+ClothTopP1Shirt
+ClothTopP2Shirt <= Shows above arms and behind body
+ClothTopP3Shirt <= Shows behind body and arms
+
+===== ClothBottom =====
+--- Default ---
+ClothBottomP1Pants
+
+===== UnderwearTop =====
+--- Default ---
+ClothUnderwearTopP1
+ClothUnderwearTopP2 <= Shows above arms and behind body
+
+===== UnderwearBottom =====
+--- Default ---
+ClothUnderwearBottom
+
+===== Socks =====
+--- Default ---
+ClothSocks
+
+===== Shoes =====
+--- Default ---
+ClothShoes
+
+
+
+
