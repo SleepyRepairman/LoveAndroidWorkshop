@@ -58,15 +58,20 @@ ArmLeft
 
 --- Kneeling ---
 Body
-Arms
+ArmRight
+ArmLeft
+ArmLeft-Cover
+HandLeft-Cover
 Legs
 
 --- Bend over ---
 Body
+HandCover
 Neck
 Pussy
 Body-Lower
 Pussy-Open
+
 
 --- Spread legs ---
 Body
@@ -119,6 +124,7 @@ ClothTopP3Shirt <= Shows behind body and arms
 ===== ClothBottom =====
 --- Default ---
 ClothBottomP1Pants
+ClothBottomP1Skirt
 
 ===== UnderwearTop =====
 --- Default ---
