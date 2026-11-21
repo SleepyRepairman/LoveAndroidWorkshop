@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Love Android Workshop Manifest Helper v11
+Love Android Workshop Manifest Helper v14
 I made this script with ChatGPT to help compile mods. If you encounter any issue with it please contact me on discord.
 """
 
@@ -39,6 +39,12 @@ VALID_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 EYES_FOLDERS = ["Eyes", "Pupils"]
 PUBIC_HAIR_FOLDERS = ["PubicHair", "Pubic Hair"]
+NIPPLE_FOLDERS = ["Nipples", "Nipple"]
+EYE_SHAPE_FOLDERS = ["EyeShape", "EyeShapes", "EyesShape"]
+EYE_VARIATIONS = ("Normal", "Wink", "Closed")
+ACCESSORY_FOLDERS = ["Accessory", "Accessories"]
+# Add more IDs here when the corresponding Spine slot has been configured.
+ACCESSORY_SLOTS = ("Head", "Face1", "Face2", "Face3", "Back1", "Back2", "Neck")
 
 MULTIPART_CONFIG = {
     "Head": {
@@ -73,13 +79,17 @@ MULTIPART_CONFIG = {
         "manifest_key": "socks",
         "folders": ["Socks", "Sock"],
     },
+    "Gloves": {
+        "manifest_key": "gloves",
+        "folders": ["Gloves", "Glove"],
+    },
     "Shoes": {
         "manifest_key": "shoes",
         "folders": ["Shoes", "Shoe"],
     },
 }
 
-TAB_ORDER = ["Eyes", "PubicHair", "Head", "Hair", "Body", "ClothTop", "ClothBottom", "UnderwearTop", "UnderwearBottom", "Socks", "Shoes"]
+TAB_ORDER = ["Eyes", "EyeShape", "Accessory", "PubicHair", "Nipples", "Head", "Hair", "Body", "ClothTop", "ClothBottom", "UnderwearTop", "UnderwearBottom", "Socks", "Gloves", "Shoes"]
 
 MULTIPART_SIZE_VARIANTS = ("Small", "Medium", "Big")
 SIZE_VARIANT_CATEGORIES = {"Body", "ClothTop", "UnderwearTop"}
@@ -695,6 +705,82 @@ class PubicHairResourceData:
     poses: List[PubicHairPoseData] = field(default_factory=list)
 
 
+@dataclass
+class NipplePoseData:
+    pose_id: str
+    right: str
+    left: str
+
+
+@dataclass
+class NippleResourceData:
+    resource_id: str
+    name_var: tk.StringVar
+    fixed_var: tk.BooleanVar
+    poses: List[NipplePoseData] = field(default_factory=list)
+
+
+@dataclass
+class EyeShapeVariationData:
+    variation_id: str
+    texture: str
+    mask_var: tk.StringVar
+
+
+@dataclass
+class EyeShapePoseData:
+    pose_id: str
+    variations: List[EyeShapeVariationData] = field(default_factory=list)
+    source_pose_id: str = ""
+
+
+@dataclass
+class EyeShapeResourceData:
+    resource_id: str
+    name_var: tk.StringVar
+    eye_white_var: tk.StringVar
+    poses: List[EyeShapePoseData] = field(default_factory=list)
+
+
+@dataclass
+class EyeWhiteVariationData:
+    variation_id: str
+    texture: str
+
+
+@dataclass
+class EyeWhitePoseData:
+    pose_id: str
+    variations: List[EyeWhiteVariationData] = field(default_factory=list)
+    source_pose_id: str = ""
+
+
+@dataclass
+class EyeWhiteResourceData:
+    resource_id: str
+    name_var: tk.StringVar
+    poses: List[EyeWhitePoseData] = field(default_factory=list)
+
+
+@dataclass
+class AccessoryPoseData:
+    pose_id: str
+    texture: str
+    variations: Dict[str, str] = field(default_factory=dict)
+    source_pose_id: str = ""
+    back_texture: str = ""
+    back_variations: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class AccessoryResourceData:
+    resource_id: str
+    name_var: tk.StringVar
+    slot_var: tk.StringVar
+    fixed_var: tk.BooleanVar
+    poses: List[AccessoryPoseData] = field(default_factory=list)
+
+
 class ScrollableFrame(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
@@ -841,7 +927,11 @@ class ManifestHelperApp(tk.Tk):
         self._crop_cache_dirty = False
 
         self.eye_data: List[EyeResourceData] = []
+        self.eye_shape_data: List[EyeShapeResourceData] = []
+        self.eye_white_data: List[EyeWhiteResourceData] = []
+        self.accessory_data: List[AccessoryResourceData] = []
         self.pubic_hair_data: List[PubicHairResourceData] = []
+        self.nipple_data: List[NippleResourceData] = []
 
         self.multipart_data: Dict[str, List[MultipartResourceData]] = {
             category: [] for category in MULTIPART_CONFIG
@@ -1330,11 +1420,15 @@ class ManifestHelperApp(tk.Tk):
             return
 
         self.root_path = candidate
+        accessory_snapshot = self._capture_accessory_assignments()
         old_assignments = self._capture_current_multipart_assignments()
         existing_assignments = self._existing_multipart_assignments()
 
         self.eye_data = self._scan_eyes()
+        self.eye_shape_data, self.eye_white_data = self._scan_eye_shapes()
+        self.accessory_data = self._scan_accessories(accessory_snapshot)
         self.pubic_hair_data = self._scan_pubic_hair()
+        self.nipple_data = self._scan_nipples()
 
         for category in MULTIPART_CONFIG:
             self.multipart_data[category] = self._scan_multipart_category(
@@ -1346,12 +1440,18 @@ class ManifestHelperApp(tk.Tk):
         self._harvest_templates_from_existing_manifest()
         self.render_all_categories()
 
-        eye_count = len(self.eye_data)
+        eye_count = len(self.eye_data) + len(self.eye_shape_data) + len(self.eye_white_data)
         pubic_count = len(self.pubic_hair_data)
+        nipple_count = len(self.nipple_data)
         multipart_count = sum(len(resources) for resources in self.multipart_data.values())
+        accessory_count = len(self.accessory_data)
 
         texture_count = (
-            sum(len(resource.texture_options) for resource in self.eye_data)
+            sum(1 + bool(p.back_texture) + len(p.variations) + len(p.back_variations) for r in self.accessory_data for p in r.poses)
+            + sum(2 * len(r.poses) for r in self.nipple_data)
+            + sum(len(resource.texture_options) for resource in self.eye_data)
+            + sum(len(p.variations) for r in self.eye_shape_data for p in r.poses)
+            + sum(len(p.variations) for r in self.eye_white_data for p in r.poses)
             + sum(
                 len(pose.texture_options)
                 for resource in self.pubic_hair_data
@@ -1366,7 +1466,7 @@ class ManifestHelperApp(tk.Tk):
         )
 
         self.status_var.set(
-            f"{eye_count + pubic_count + multipart_count} resources / "
+            f"{eye_count + pubic_count + nipple_count + multipart_count + accessory_count} resources / "
             f"{texture_count} texture entries found"
         )
 
@@ -1479,6 +1579,421 @@ class ManifestHelperApp(tk.Tk):
                 return options[index]
 
         return options[0] if side == "left" else (options[1] if len(options) > 1 else options[0])
+
+    # ------------------------------------------------------------------
+    # EYE SHAPE / SHARED EYE WHITE
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _eye_file_info(stem: str):
+        # Accept EyeWhiteV1 and legacy EyesWhiteV1 filenames.
+        white_match = re.fullmatch(r"(?:EyeWhite|EyesWhite)([A-Za-z0-9_.]+?)(?:-(.+))?", stem, re.IGNORECASE)
+        shape_match = re.fullmatch(r"Eyes([A-Za-z0-9_.]+?)(?:-(.+))?", stem, re.IGNORECASE)
+        match = white_match or shape_match
+        if not match:
+            return None
+        variation = match.group(2) or "Normal"
+        return ("white" if white_match else "shape", match.group(1), variation)
+
+    @staticmethod
+    def _find_eye_manifest_entry(resources, resource_id):
+        for entry in resources if isinstance(resources, list) else []:
+            if isinstance(entry, dict) and str(entry.get("id", "")).casefold() == resource_id.casefold():
+                return entry
+        return {}
+
+    def _scan_eye_shapes(self):
+        folder = self._detect_folder(EYE_SHAPE_FOLDERS)
+        # Official packages may put pose folders directly at the mod root.
+        if folder is None:
+            folder = self.root_path
+        if folder is None:
+            return [], []
+        content = self.existing_manifest.get("content", {}) if isinstance(self.existing_manifest, dict) else {}
+        existing_shapes = content.get("eyeShape", []) if isinstance(content, dict) else []
+        existing_whites = content.get("eyeWhite", []) if isinstance(content, dict) else []
+        gathered = {"shape": {}, "white": {}}
+        # Scan direct pose subfolders; paths remain relative to mod root.
+        for pose_folder in sorted((x for x in folder.iterdir() if x.is_dir()), key=lambda x: natural_key(x.name)):
+            for png in sorted(pose_folder.glob("*.png"), key=lambda x: natural_key(x.name)):
+                parsed = self._eye_file_info(png.stem)
+                if not parsed:
+                    continue  # e.g. Tired.png: future Accessory category.
+                kind, resource_id, variation = parsed
+                gathered[kind].setdefault(resource_id, {}).setdefault(pose_folder.name, {})[variation] = to_posix_relative(png, self.root_path)
+
+        result_shapes = []
+        result_whites = []
+        for resource_id, poses in sorted(gathered["white"].items(), key=lambda kv: natural_key(kv[0])):
+            full_id = "EyeWhite" + resource_id
+            old = self._find_eye_manifest_entry(existing_whites, full_id)
+            pose_data = []
+            for pose_id, variations in sorted(poses.items(), key=lambda kv: natural_key(kv[0])):
+                pose_data.append(EyeWhitePoseData(pose_id, [EyeWhiteVariationData(vid, path) for vid, path in sorted(variations.items(), key=lambda kv: (kv[0] != "Normal", natural_key(kv[0])))]))
+            result_whites.append(EyeWhiteResourceData(full_id, tk.StringVar(value=old.get("name", full_id)), pose_data))
+
+        white_ids = [r.resource_id for r in result_whites]
+        for resource_id, poses in sorted(gathered["shape"].items(), key=lambda kv: natural_key(kv[0])):
+            old = self._find_eye_manifest_entry(existing_shapes, resource_id)
+            # EyeWhiteV1 preferred for EyesV1, otherwise first shared white.
+            preferred = next((white for white in white_ids if white.casefold() == ("EyeWhite" + resource_id).casefold()), white_ids[0] if white_ids else "")
+            selected_white = str(old.get("eyeWhite", preferred))
+            pose_data = []
+            for pose_id, variations in sorted(poses.items(), key=lambda kv: natural_key(kv[0])):
+                old_pose = next((x for x in old.get("poses", []) if isinstance(x, dict) and str(x.get("poseId", "")).casefold() == pose_id.casefold()), {})
+                old_vars = {str(x.get("id", "")).casefold(): x for x in old_pose.get("variations", []) if isinstance(x, dict)}
+                variation_data = []
+                for variation_id, path in sorted(variations.items(), key=lambda kv: (kv[0] != "Normal", natural_key(kv[0]))):
+                    old_var = old_vars.get(variation_id.casefold(), {})
+                    inferred_mask = "EyeMask" + (resource_id[1:] if resource_id[:1].casefold() == "v" and resource_id[1:].isdigit() else resource_id) + ("-" + variation_id if variation_id != "Normal" else "")
+                    variation_data.append(EyeShapeVariationData(variation_id, path, tk.StringVar(value=str(old_var.get("mask", inferred_mask)))))
+                pose_data.append(EyeShapePoseData(pose_id, variation_data))
+            result_shapes.append(EyeShapeResourceData(resource_id, tk.StringVar(value=old.get("name", "Eyes " + resource_id)), tk.StringVar(value=selected_white), pose_data))
+
+        # Preserve manifest-only poses after Scan / Rescan, without copying PNGs.
+        for resource, source_entries, is_shape in [
+            *((item, existing_shapes, True) for item in result_shapes),
+            *((item, existing_whites, False) for item in result_whites),
+        ]:
+            old = self._find_eye_manifest_entry(source_entries, resource.resource_id)
+            known = {pose.pose_id.casefold() for pose in resource.poses}
+            for old_pose in old.get("poses", []) if isinstance(old.get("poses", []), list) else []:
+                if not isinstance(old_pose, dict):
+                    continue
+                pose_id = str(old_pose.get("poseId", "")).strip()
+                if not pose_id or pose_id.casefold() in known:
+                    continue
+                variations = []
+                for item in old_pose.get("variations", []):
+                    if not isinstance(item, dict):
+                        continue
+                    vid, path = str(item.get("id", "")).strip(), str(item.get("texture", "")).strip()
+                    if not vid or not path or not (self.root_path / path).is_file():
+                        variations = []
+                        break
+                    if is_shape:
+                        variations.append(EyeShapeVariationData(vid, path, tk.StringVar(value=str(item.get("mask", "")))))
+                    else:
+                        variations.append(EyeWhiteVariationData(vid, path))
+                if variations:
+                    pose = EyeShapePoseData(pose_id, variations, "(shared)") if is_shape else EyeWhitePoseData(pose_id, variations, "(shared)")
+                    resource.poses.append(pose)
+                    known.add(pose_id.casefold())
+            resource.poses.sort(key=lambda pose: natural_key(pose.pose_id))
+        return result_shapes, result_whites
+
+    def render_eye_shapes(self):
+        parent = self._clear_category_frame("EyeShape")
+        folder = self._detect_folder(EYE_SHAPE_FOLDERS) or self.root_path
+        folder_text = to_posix_relative(folder, self.root_path) or "(mod root)" if folder and self.root_path else "(folder not found)"
+        ttk.Label(parent, text="Source: " + folder_text, font=("", 10, "bold"), padding=8).pack(anchor="w")
+        ttk.Label(parent, text="EyeShape is never recolored. EyeWhite is shared and remains recolorable in Unity. Masks are Spine skin IDs; edit them below.", wraplength=950, padding=(8, 2)).pack(anchor="w")
+        if not self.eye_shape_data and not self.eye_white_data:
+            ttk.Label(parent, text="No EyeShape resources found. Use EyeShape/Default/EyesV1.png and EyeWhiteV1.png.", padding=18).pack(anchor="w")
+            return
+        white_ids = ["", *[r.resource_id for r in self.eye_white_data]]
+        for shape in self.eye_shape_data:
+            box = ttk.LabelFrame(parent, text="Eyes" + shape.resource_id, padding=8)
+            box.pack(fill="x", padx=4, pady=6)
+            top = ttk.Frame(box)
+            top.pack(fill="x")
+            ttk.Label(top, text="Display name").pack(side="left")
+            ttk.Entry(top, textvariable=shape.name_var, width=23).pack(side="left", padx=(4, 18))
+            ttk.Label(top, text="Shared EyeWhite").pack(side="left")
+            ttk.Combobox(top, textvariable=shape.eye_white_var, values=white_ids, width=22, state="readonly").pack(side="left", padx=4)
+            ttk.Button(top, text="Add shared pose", command=lambda r=shape: self._add_shared_eye_pose_dialog(r)).pack(side="right")
+            for pose in shape.poses:
+                header = ttk.Frame(box)
+                header.pack(fill="x", pady=(7, 1))
+                label = pose.pose_id + ("  [shared from " + pose.source_pose_id + "]" if pose.source_pose_id else "")
+                ttk.Label(header, text=label, font=("", 9, "bold")).pack(side="left")
+                if pose.source_pose_id:
+                    ttk.Button(header, text="Remove", command=lambda r=shape, p=pose: self._remove_shared_eye_pose(r, p)).pack(side="right")
+                for variation in pose.variations:
+                    line = ttk.Frame(box)
+                    line.pack(fill="x", pady=1)
+                    ttk.Label(line, text=variation.variation_id, width=12).pack(side="left")
+                    ttk.Label(line, text=variation.texture, width=67).pack(side="left")
+                    ttk.Label(line, text="Mask").pack(side="left", padx=(8, 3))
+                    ttk.Entry(line, textvariable=variation.mask_var, width=23).pack(side="left")
+                    if variation.variation_id.casefold() == "closed":
+                        ttk.Label(line, text="EyeWhite hidden").pack(side="left", padx=8)
+        if self.eye_white_data:
+            ttk.Label(parent, text="SHARED EYE WHITE RESOURCES", font=("", 10, "bold"), padding=(8, 12)).pack(anchor="w")
+        for white in self.eye_white_data:
+            box = ttk.LabelFrame(parent, text=white.resource_id, padding=8)
+            box.pack(fill="x", padx=4, pady=4)
+            ttk.Label(box, text="Display name").pack(anchor="w")
+            ttk.Entry(box, textvariable=white.name_var, width=30).pack(anchor="w")
+            for pose in white.poses:
+                header = ttk.Frame(box)
+                header.pack(fill="x")
+                label = pose.pose_id + ("  [shared from " + pose.source_pose_id + "]" if pose.source_pose_id else "")
+                ttk.Label(header, text=label, font=("", 9, "bold")).pack(side="left")
+                if pose.source_pose_id:
+                    ttk.Button(header, text="Remove", command=lambda r=white, p=pose: self._remove_shared_white_pose(r, p)).pack(side="right")
+                for variation in pose.variations:
+                    ttk.Label(box, text=f"    {variation.variation_id}: {variation.texture}").pack(anchor="w")
+
+    def _add_shared_eye_pose_dialog(self, resource: EyeShapeResourceData):
+        if not resource.poses:
+            messagebox.showinfo(APP_TITLE, "This EyeShape has no source pose.")
+            return
+
+        window = tk.Toplevel(self)
+        window.title("Add shared EyeShape pose - Eyes" + resource.resource_id)
+        window.geometry("450x180")
+        window.transient(self)
+        window.grab_set()
+        content = ttk.Frame(window, padding=12)
+        content.pack(fill="both", expand=True)
+        ttk.Label(content, text="New pose ID").grid(row=0, column=0, sticky="w", pady=5)
+        pose_var = tk.StringVar()
+        ttk.Entry(content, textvariable=pose_var).grid(row=0, column=1, sticky="ew", pady=5)
+        ttk.Label(content, text="Reuse files from pose").grid(row=1, column=0, sticky="w", pady=5)
+        sources = [pose.pose_id for pose in resource.poses]
+        source_var = tk.StringVar(value=sources[0])
+        ttk.Combobox(content, textvariable=source_var, values=sources, state="readonly").grid(row=1, column=1, sticky="ew", pady=5)
+        ttk.Label(content, text="Reuses EyeShape, masks, and matching shared EyeWhite textures.\nNo PNGs are duplicated.").grid(row=2, column=0, columnspan=2, sticky="w", pady=9)
+        content.columnconfigure(1, weight=1)
+        buttons = ttk.Frame(window, padding=(12, 0, 12, 12))
+        buttons.pack(fill="x")
+
+        def confirm():
+            pose_id, source_id = pose_var.get().strip(), source_var.get().strip()
+            if not pose_id or len(pose_id) > 128:
+                messagebox.showerror(APP_TITLE, "Enter a pose ID of 1-128 characters.", parent=window)
+                return
+            if any(p.pose_id.casefold() == pose_id.casefold() for p in resource.poses):
+                messagebox.showerror(APP_TITLE, "That pose already exists for this EyeShape.", parent=window)
+                return
+            source = next((p for p in resource.poses if p.pose_id == source_id), None)
+            if source is None:
+                return
+            white_id = resource.eye_white_var.get().strip()
+            white = next((w for w in self.eye_white_data if w.resource_id.casefold() == white_id.casefold()), None) if white_id else None
+            white_source = next((p for p in white.poses if p.pose_id.casefold() == source_id.casefold()), None) if white else None
+            if white and white_source is None:
+                messagebox.showerror(APP_TITLE, f"{white.resource_id} has no '{source_id}' pose to share.", parent=window)
+                return
+            if white and any(p.pose_id.casefold() == pose_id.casefold() for p in white.poses):
+                existing = next(p for p in white.poses if p.pose_id.casefold() == pose_id.casefold())
+                source_variations = {v.variation_id.casefold(): v.texture for v in white_source.variations}
+                existing_variations = {v.variation_id.casefold(): v.texture for v in existing.variations}
+                if any(existing_variations.get(key) != value for key, value in source_variations.items()):
+                    messagebox.showerror(APP_TITLE, f"{white.resource_id}/{pose_id} already uses different textures.", parent=window)
+                    return
+            resource.poses.append(EyeShapePoseData(pose_id, [EyeShapeVariationData(v.variation_id, v.texture, tk.StringVar(value=v.mask_var.get())) for v in source.variations], source_id))
+            resource.poses.sort(key=lambda p: natural_key(p.pose_id))
+            if white and white_source and not any(p.pose_id.casefold() == pose_id.casefold() for p in white.poses):
+                white.poses.append(EyeWhitePoseData(pose_id, [EyeWhiteVariationData(v.variation_id, v.texture) for v in white_source.variations], source_id))
+                white.poses.sort(key=lambda p: natural_key(p.pose_id))
+            self.render_eye_shapes()
+            window.destroy()
+
+        ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
+        ttk.Button(buttons, text="Add shared pose", command=confirm).pack(side="right", padx=8)
+
+    def _remove_shared_eye_pose(self, resource: EyeShapeResourceData, pose: EyeShapePoseData):
+        resource.poses.remove(pose)
+        self.render_eye_shapes()
+
+    def _remove_shared_white_pose(self, resource: EyeWhiteResourceData, pose: EyeWhitePoseData):
+        referenced = [shape for shape in self.eye_shape_data if shape.eye_white_var.get().strip().casefold() == resource.resource_id.casefold() and any(p.pose_id.casefold() == pose.pose_id.casefold() for p in shape.poses)]
+        if referenced:
+            messagebox.showerror(APP_TITLE, "This EyeWhite pose is still needed by an EyeShape. Remove those shared EyeShape poses first.")
+            return
+        resource.poses.remove(pose)
+        self.render_eye_shapes()
+
+    # ------------------------------------------------------------------
+    # ACCESSORIES (one resource folder, pose subfolders, optional Back layer)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _accessory_resource_map(resources) -> Dict[str, Dict]:
+        return {
+            str(item.get("id", "")).strip().casefold(): item
+            for item in resources if isinstance(item, dict) and str(item.get("id", "")).strip()
+        } if isinstance(resources, list) else {}
+
+    def _capture_accessory_assignments(self) -> Dict[str, Dict]:
+        return self._accessory_resource_map([
+            {
+                "id": resource.resource_id,
+                "name": resource.name_var.get(),
+                "slot": resource.slot_var.get(),
+                "isFixedColor": bool(resource.fixed_var.get()),
+                "poses": [{
+                    "poseId": pose.pose_id,
+                    "texture": pose.texture,
+                    "backTexture": pose.back_texture,
+                    "variations": [{"id": vid, "texture": path, "backTexture": pose.back_variations.get(vid, "")} for vid, path in pose.variations.items()],
+                } for pose in resource.poses],
+            }
+            for resource in self.accessory_data
+        ])
+
+    def _scan_accessories(self, unsaved: Optional[Dict[str, Dict]] = None) -> List[AccessoryResourceData]:
+        content = self.existing_manifest.get("content", {}) if isinstance(self.existing_manifest, dict) else {}
+        existing = self._accessory_resource_map(content.get("accessories", []))
+        existing.update(unsaved or {})
+        folder = self._detect_folder(ACCESSORY_FOLDERS)
+        gathered: Dict[str, Dict[str, Dict[str, str]]] = {}
+
+        # Folder convention: Accessory/<AccessoryId>/<Pose>/Front.png and optional Back.png.
+        # Variations use Front-<Variation>.png and optional Back-<Variation>.png.
+        if folder is not None:
+            for resource_dir in sorted((x for x in folder.iterdir() if x.is_dir()), key=lambda x: natural_key(x.name)):
+                resource_id = resource_dir.name
+                if not valid_id(resource_id):
+                    continue
+                for pose_dir in sorted((x for x in resource_dir.iterdir() if x.is_dir()), key=lambda x: natural_key(x.name)):
+                    if not pose_dir.name.strip() or len(pose_dir.name) > 128:
+                        continue
+                    for png in sorted((x for x in pose_dir.iterdir() if x.is_file() and x.suffix.casefold() == ".png"), key=lambda x: natural_key(x.name)):
+                        stem = png.stem
+                        if stem.casefold() in ("front", "back"):
+                            layer, variation_id = stem.capitalize(), "Normal"
+                        elif "-" in stem:
+                            layer, variation_id = stem.split("-", 1)
+                            layer = layer.capitalize()
+                            if layer not in ("Front", "Back") or not valid_id(variation_id):
+                                continue
+                        else:
+                            continue
+                        paths = gathered.setdefault(resource_id, {}).setdefault(pose_dir.name, {})
+                        paths[(variation_id, layer)] = to_posix_relative(png, self.root_path)
+
+        result: List[AccessoryResourceData] = []
+        ids = {key.casefold(): key for key in gathered}
+        # Keep previously saved resources, even when their pose is shared and has no folder.
+        for key, old in existing.items():
+            ids.setdefault(key, str(old.get("id", "")).strip())
+
+        for key, resource_id in sorted(ids.items(), key=lambda pair: natural_key(pair[1])):
+            old = existing.get(key, {})
+            old_poses = {
+                str(pose.get("poseId", "")).strip().casefold(): pose
+                for pose in old.get("poses", []) if isinstance(pose, dict) and str(pose.get("poseId", "")).strip()
+            }
+            resource = AccessoryResourceData(
+                resource_id=resource_id,
+                name_var=tk.StringVar(value=str(old.get("name", resource_id))),
+                slot_var=tk.StringVar(value=str(old.get("slot", "Head"))),
+                fixed_var=tk.BooleanVar(value=bool(old.get("isFixedColor", False))),
+            )
+            found_poses = gathered.get(resource_id, {})
+            for pose_id, variants in sorted(found_poses.items(), key=lambda pair: natural_key(pair[0])):
+                normal = next((path for (variation, layer), path in variants.items() if variation.casefold() == "normal" and layer == "Front"), "")
+                normal_back = next((path for (variation, layer), path in variants.items() if variation.casefold() == "normal" and layer == "Back"), "")
+                extras = {vid: path for (vid, layer), path in variants.items() if layer == "Front" and vid.casefold() != "normal"}
+                extra_backs = {vid: path for (vid, layer), path in variants.items() if layer == "Back" and vid.casefold() != "normal"}
+                resource.poses.append(AccessoryPoseData(pose_id, normal, extras, "", normal_back, extra_backs))
+
+            seen = {pose.pose_id.casefold() for pose in resource.poses}
+            for key_pose, old_pose in old_poses.items():
+                if key_pose in seen:
+                    continue
+                pose_id = str(old_pose.get("poseId", "")).strip()
+                normal = str(old_pose.get("texture", "")).strip()
+                extras = {
+                    str(v.get("id", "")).strip(): str(v.get("texture", "")).strip()
+                    for v in old_pose.get("variations", []) if isinstance(v, dict) and str(v.get("id", "")).strip()
+                }
+                normal_back = str(old_pose.get("backTexture", "")).strip()
+                extra_backs = {str(v.get("id", "")).strip(): str(v.get("backTexture", "")).strip() for v in old_pose.get("variations", []) if isinstance(v, dict) and str(v.get("id", "")).strip() and str(v.get("backTexture", "")).strip()}
+                paths = ([normal] if normal else []) + list(extras.values()) + ([normal_back] if normal_back else []) + list(extra_backs.values())
+                if paths and all((self.root_path / path).is_file() for path in paths):
+                    resource.poses.append(AccessoryPoseData(pose_id, normal, extras, "(shared)", normal_back, extra_backs))
+            resource.poses.sort(key=lambda pose: natural_key(pose.pose_id))
+            if resource.poses:
+                result.append(resource)
+        return result
+
+    def render_accessories(self):
+        parent = self._clear_category_frame("Accessory")
+        folder = self._detect_folder(ACCESSORY_FOLDERS)
+        folder_text = to_posix_relative(folder, self.root_path) if folder and self.root_path else "(folder not found)"
+        ttk.Label(parent, text=f"Source: {folder_text} | {len(self.accessory_data)} accessory resource(s)", padding=8, font=("", 10, "bold")).pack(anchor="w")
+        ttk.Label(parent, text="Files: Accessory/CatEars/Default/Front.png and optional Back.png. Variations: Front-TurnBack.png and optional Back-TurnBack.png. Both layers share one equipped slot and color.", wraplength=1030, padding=(8, 2)).pack(anchor="w")
+        ttk.Label(parent, text="The slot is fixed in the manifest. Shared poses reference existing PNGs without duplicating files.", wraplength=1000, padding=(8, 2)).pack(anchor="w")
+        ttk.Label(parent, text="Accessory PNGs: export each pose and variation at 4000x4000 with identical canvas alignment. Build ZIP crops them and writes positioning metadata, without changing source files.", wraplength=1000, padding=(8, 2)).pack(anchor="w")
+        if not self.accessory_data:
+            ttk.Label(parent, text="No accessories found. Create Accessory/CatEars/Default/Front.png and rescan.", padding=16).pack(anchor="w")
+        for resource in self.accessory_data:
+            box = ttk.LabelFrame(parent, text=resource.resource_id, padding=8)
+            box.pack(fill="x", padx=4, pady=5)
+            props = ttk.Frame(box)
+            props.pack(fill="x", pady=(0, 5))
+            ttk.Label(props, text="Display name").pack(side="left")
+            ttk.Entry(props, textvariable=resource.name_var, width=26).pack(side="left", padx=(5, 14))
+            ttk.Label(props, text="Slot").pack(side="left")
+            ttk.Combobox(props, textvariable=resource.slot_var, values=ACCESSORY_SLOTS, width=12, state="readonly").pack(side="left", padx=(5, 14))
+            ttk.Checkbutton(props, text="Fixed color", variable=resource.fixed_var).pack(side="left")
+            ttk.Button(props, text="Add shared pose", command=lambda r=resource: self._add_shared_accessory_pose_dialog(r)).pack(side="right")
+            for pose in resource.poses:
+                header = ttk.Frame(box)
+                header.pack(fill="x", pady=(6, 1))
+                suffix = " [shared]" if pose.source_pose_id else ""
+                ttk.Label(header, text=pose.pose_id + suffix, font=("", 9, "bold"), width=25).pack(side="left")
+                if pose.source_pose_id:
+                    ttk.Button(header, text="Remove", command=lambda r=resource, p=pose: self._remove_shared_accessory_pose(r, p)).pack(side="right")
+                if pose.texture:
+                    ttk.Label(box, text=f"    Normal: {pose.texture}").pack(anchor="w")
+                else:
+                    ttk.Label(box, text="    Normal: MISSING", foreground="#b05030").pack(anchor="w")
+                if pose.back_texture:
+                    ttk.Label(box, text=f"    Normal Back: {pose.back_texture}").pack(anchor="w")
+                for variant_id, path in sorted(pose.variations.items(), key=lambda pair: natural_key(pair[0])):
+                    ttk.Label(box, text=f"    {variant_id}: {path}").pack(anchor="w")
+                    if pose.back_variations.get(variant_id):
+                        ttk.Label(box, text=f"    {variant_id} Back: {pose.back_variations[variant_id]}").pack(anchor="w")
+
+    def _add_shared_accessory_pose_dialog(self, resource: AccessoryResourceData):
+        if not resource.poses:
+            messagebox.showinfo(APP_TITLE, "Accessory has no source pose.")
+            return
+        window = tk.Toplevel(self)
+        window.title("Add shared Accessory pose - " + resource.resource_id)
+        window.geometry("470x175")
+        window.transient(self)
+        window.grab_set()
+        frame = ttk.Frame(window, padding=12)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="New pose ID").grid(row=0, column=0, sticky="w", pady=5)
+        pose_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=pose_var).grid(row=0, column=1, sticky="ew", pady=5)
+        ttk.Label(frame, text="Reuse files from pose").grid(row=1, column=0, sticky="w", pady=5)
+        source_var = tk.StringVar(value=resource.poses[0].pose_id)
+        ttk.Combobox(frame, textvariable=source_var, values=[p.pose_id for p in resource.poses], state="readonly").grid(row=1, column=1, sticky="ew", pady=5)
+        ttk.Label(frame, text="Copies Front/Back and every variation path; no PNG duplication.").grid(row=2, column=0, columnspan=2, pady=7, sticky="w")
+        frame.columnconfigure(1, weight=1)
+
+        def confirm():
+            pose_id, source_id = pose_var.get().strip(), source_var.get().strip()
+            if not pose_id or len(pose_id) > 128:
+                messagebox.showerror(APP_TITLE, "Enter a pose name of 1-128 characters.", parent=window)
+                return
+            if any(p.pose_id.casefold() == pose_id.casefold() for p in resource.poses):
+                messagebox.showerror(APP_TITLE, "This pose already exists.", parent=window)
+                return
+            source = next((p for p in resource.poses if p.pose_id == source_id), None)
+            if source is None:
+                return
+            resource.poses.append(AccessoryPoseData(pose_id, source.texture, dict(source.variations), source_id, source.back_texture, dict(source.back_variations)))
+            resource.poses.sort(key=lambda p: natural_key(p.pose_id))
+            self.render_accessories()
+            window.destroy()
+
+        buttons = ttk.Frame(window, padding=(12, 0, 12, 12))
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
+        ttk.Button(buttons, text="Add shared pose", command=confirm).pack(side="right", padx=8)
+
+    def _remove_shared_accessory_pose(self, resource: AccessoryResourceData, pose: AccessoryPoseData):
+        resource.poses.remove(pose)
+        self.render_accessories()
 
     # ------------------------------------------------------------------
     # PUBIC HAIR
@@ -2317,7 +2832,10 @@ class ManifestHelperApp(tk.Tk):
 
     def render_all_categories(self):
         self.render_eyes()
+        self.render_eye_shapes()
+        self.render_accessories()
         self.render_pubic_hair()
+        self.render_nipples()
 
         for category in MULTIPART_CONFIG:
             self.render_multipart_category(category)
@@ -2435,6 +2953,26 @@ class ManifestHelperApp(tk.Tk):
                     )
 
             rows.columnconfigure(1, weight=1)
+
+    def render_nipples(self):
+        parent = self._clear_category_frame("Nipples")
+        detected = self._detect_folder(NIPPLE_FOLDERS)
+        folder_text = to_posix_relative(detected, self.root_path) if detected else "(folder not found)"
+        ttk.Label(parent, text=f"Source folder: {folder_text} | {len(self.nipple_data)} resource(s)", padding=8).pack(anchor="w")
+        ttk.Label(parent, text="Each pose needs NippleRight.png and NippleLeft.png in their original Spine-template dimensions. No cropping, masks, or EyeWhite.", padding=8).pack(anchor="w")
+        for resource in self.nipple_data:
+            box = ttk.LabelFrame(parent, text=resource.resource_id, padding=8)
+            box.pack(fill="x", padx=4, pady=5)
+            props = ttk.Frame(box)
+            props.pack(fill="x", pady=(0, 6))
+            ttk.Label(props, text="Display name").pack(side="left")
+            ttk.Entry(props, textvariable=resource.name_var, width=30).pack(side="left", padx=6)
+            ttk.Checkbutton(props, text="Fixed color", variable=resource.fixed_var).pack(side="left")
+            for pose in resource.poses:
+                row = ttk.Frame(box)
+                row.pack(fill="x", pady=2)
+                ttk.Label(row, text=pose.pose_id, width=22).pack(side="left")
+                ttk.Label(row, text=f"Right: {pose.right} | Left: {pose.left}").pack(side="left")
 
     def render_multipart_category(self, category: str):
         parent = self._clear_category_frame(category)
@@ -2656,6 +3194,40 @@ class ManifestHelperApp(tk.Tk):
             cached[1] == stat.st_size
         )
 
+    def _scan_nipples(self) -> List[NippleResourceData]:
+        folder = self._detect_folder(NIPPLE_FOLDERS)
+        if folder is None:
+            return []
+
+        content = self.existing_manifest.get("content", {}) if isinstance(self.existing_manifest, dict) else {}
+        existing = {str(r.get("id", "")).casefold(): r for r in content.get("nipples", []) if isinstance(r, dict)}
+        result = []
+
+        # Nipples/<ResourceId>/<PoseId>/NippleRight.png and NippleLeft.png
+        for resource_dir in sorted((x for x in folder.iterdir() if x.is_dir()), key=lambda x: natural_key(x.name)):
+            old = existing.get(resource_dir.name.casefold(), {})
+            resource = NippleResourceData(resource_dir.name, tk.StringVar(value=str(old.get("name", resource_dir.name))), tk.BooleanVar(value=bool(old.get("isFixedColor", False))))
+            for pose_dir in sorted((x for x in resource_dir.iterdir() if x.is_dir()), key=lambda x: natural_key(x.name)):
+                files = {x.stem.casefold(): x for x in pose_dir.glob("*.png") if x.is_file()}
+                # Accept lowercase/uppercase initial and canonical filenames.
+                right = files.get("nippleright")
+                left = files.get("nippleleft")
+                resource.poses.append(NipplePoseData(pose_dir.name, to_posix_relative(right, self.root_path) if right else "", to_posix_relative(left, self.root_path) if left else ""))
+            if resource.poses:
+                result.append(resource)
+        return result
+
+    def _collect_accessory_texture_paths(self) -> List[str]:
+        return sorted({texture for resource in self.accessory_data for pose in resource.poses for texture in [pose.texture, pose.back_texture, *pose.variations.values(), *pose.back_variations.values()] if texture}, key=natural_key)
+
+    def _accessory_crop_fields(self, texture: str) -> Dict:
+        crop = self._try_get_crop_info(texture)
+        if crop is None:
+            return {}
+        fields = {}
+        self._apply_crop_fields(fields, crop)
+        return fields
+
     def _collect_multipart_texture_paths(self) -> List[str]:
         result = []
         seen = set()
@@ -2686,7 +3258,7 @@ class ManifestHelperApp(tk.Tk):
         return sorted(result, key=natural_key)
 
     def _warm_crop_cache_with_progress(self, title: str):
-        textures = self._collect_multipart_texture_paths()
+        textures = sorted(set(self._collect_multipart_texture_paths() + self._collect_accessory_texture_paths()), key=natural_key)
 
         pending = [
             texture
@@ -2761,6 +3333,13 @@ class ManifestHelperApp(tk.Tk):
 
         return result
 
+    def _collect_all_crop_infos(self) -> Dict[str, CropInfo]:
+        result = self._collect_multipart_crop_infos()
+        for texture in self._collect_accessory_texture_paths():
+            if texture not in result:
+                result[texture] = self._get_crop_info(texture)
+        return result
+
     @staticmethod
     def _format_mib(value: int) -> str:
         return f"{value / (1024 * 1024):.1f} MiB"
@@ -2775,7 +3354,7 @@ class ManifestHelperApp(tk.Tk):
         percent = (saved / before * 100.0) if before else 0.0
 
         return (
-            f"Multipart runtime texture estimate: {self._format_mib(before)} -> "
+            f"Cropped cosmetics runtime texture estimate: {self._format_mib(before)} -> "
             f"{self._format_mib(after)} ({percent:.1f}% smaller)"
         )
 
@@ -2811,6 +3390,56 @@ class ManifestHelperApp(tk.Tk):
             )
 
         content["eyes"] = eyes_json
+        content["eyeShape"] = [
+            {
+                "id": shape.resource_id,
+                "name": shape.name_var.get().strip() or "Eyes " + shape.resource_id,
+                "eyeWhite": shape.eye_white_var.get().strip(),
+                "poses": [{
+                    "poseId": pose.pose_id,
+                    "variations": [{
+                        "id": variation.variation_id,
+                        "texture": variation.texture,
+                        "mask": variation.mask_var.get().strip(),
+                        **({"hideEyeWhite": True} if variation.variation_id.casefold() == "closed" else {}),
+                    } for variation in pose.variations],
+                } for pose in shape.poses],
+            } for shape in self.eye_shape_data
+        ]
+        content["eyeWhite"] = [
+            {
+                "id": white.resource_id,
+                "name": white.name_var.get().strip() or white.resource_id,
+                "poses": [{
+                    "poseId": pose.pose_id,
+                    "variations": [{"id": v.variation_id, "texture": v.texture} for v in pose.variations],
+                } for pose in white.poses],
+            } for white in self.eye_white_data
+        ]
+
+
+        content["accessories"] = [
+            {
+                "id": resource.resource_id,
+                "name": resource.name_var.get().strip() or resource.resource_id,
+                "slot": resource.slot_var.get().strip(),
+                "isFixedColor": bool(resource.fixed_var.get()),
+                "poses": [
+                    {
+                        "poseId": pose.pose_id,
+                        "texture": pose.texture,
+                        **self._accessory_crop_fields(pose.texture),
+                        **({"backTexture": pose.back_texture, **{ "back" + key[0].upper() + key[1:]: value for key, value in self._accessory_crop_fields(pose.back_texture).items() }} if pose.back_texture else {}),
+                        **({"variations": [
+                            {"id": variation, "texture": texture, **self._accessory_crop_fields(texture), **({"backTexture": pose.back_variations[variation], **{ "back" + key[0].upper() + key[1:]: value for key, value in self._accessory_crop_fields(pose.back_variations[variation]).items() }} if variation in pose.back_variations else {})}
+                            for variation, texture in sorted(pose.variations.items(), key=lambda item: natural_key(item[0]))
+                        ]} if pose.variations else {}),
+                    }
+                    for pose in resource.poses
+                ],
+            }
+            for resource in self.accessory_data
+        ]
 
         pubic_json = []
 
@@ -2835,6 +3464,16 @@ class ManifestHelperApp(tk.Tk):
             )
 
         content["pubicHair"] = pubic_json
+
+        content["nipples"] = [
+            {
+                "id": resource.resource_id,
+                "name": resource.name_var.get().strip() or resource.resource_id,
+                "isFixedColor": bool(resource.fixed_var.get()),
+                "poses": [{"poseId": pose.pose_id, "right": pose.right, "left": pose.left} for pose in resource.poses]
+            }
+            for resource in self.nipple_data
+        ]
 
         for category, cfg in MULTIPART_CONFIG.items():
             resources_json = []
@@ -2973,6 +3612,97 @@ class ManifestHelperApp(tk.Tk):
                 errors.append(f"Eyes/{resource.resource_id}: right texture is missing.")
             else:
                 self._validate_texture_path(right, errors)
+
+        # EyeShape and shared EyeWhite
+        white_ids = {white.resource_id.casefold(): white for white in self.eye_white_data}
+        seen_white_ids = set()
+        for white in self.eye_white_data:
+            total_resources += 1
+            self._validate_resource_id("EyeWhite", white.resource_id, seen_white_ids, errors)
+            for pose in white.poses:
+                if not any(v.variation_id.casefold() == "normal" for v in pose.variations):
+                    errors.append(f"{white.resource_id}/{pose.pose_id}: Normal variation is required.")
+                for variation in pose.variations:
+                    self._validate_texture_path(variation.texture, errors)
+        seen_shape_ids = set()
+        for shape in self.eye_shape_data:
+            total_resources += 1
+            self._validate_resource_id("EyeShape", shape.resource_id, seen_shape_ids, errors)
+            white_id = shape.eye_white_var.get().strip()
+            if white_id and white_id.casefold() not in white_ids:
+                errors.append(f"Eyes{shape.resource_id}: unknown EyeWhite '{white_id}'.")
+            for pose in shape.poses:
+                if not any(v.variation_id.casefold() == "normal" for v in pose.variations):
+                    errors.append(f"Eyes{shape.resource_id}/{pose.pose_id}: Normal variation is required.")
+                for variation in pose.variations:
+                    self._validate_texture_path(variation.texture, errors)
+                    if not valid_id(variation.mask_var.get().strip()):
+                        errors.append(f"Eyes{shape.resource_id}/{pose.pose_id}/{variation.variation_id}: invalid Spine mask ID.")
+                    if white_id and variation.variation_id.casefold() != "closed":
+                        white = white_ids.get(white_id.casefold())
+                        white_pose = next((p for p in white.poses if p.pose_id.casefold() == pose.pose_id.casefold()), None) if white else None
+                        if white_pose is None:
+                            errors.append(f"Eyes{shape.resource_id}/{pose.pose_id}: {white_id} has no matching pose.")
+                        elif not any(v.variation_id.casefold() == variation.variation_id.casefold() for v in white_pose.variations):
+                            errors.append(f"Eyes{shape.resource_id}/{pose.pose_id}/{variation.variation_id}: {white_id} lacks matching variation.")
+
+        # Accessories
+        seen_accessory_ids = set()
+        for resource in self.accessory_data:
+            total_resources += 1
+            self._validate_resource_id("Accessory", resource.resource_id, seen_accessory_ids, errors)
+            slot = resource.slot_var.get().strip()
+            if slot not in ACCESSORY_SLOTS:
+                errors.append(f"Accessory/{resource.resource_id}: unsupported slot '{slot}'.")
+            if not resource.poses:
+                errors.append(f"Accessory/{resource.resource_id}: no poses found.")
+            seen_poses = set()
+            for pose in resource.poses:
+                pose_key = pose.pose_id.casefold()
+                if not pose.pose_id.strip() or len(pose.pose_id) > 128:
+                    errors.append(f"Accessory/{resource.resource_id}: invalid pose '{pose.pose_id}'.")
+                if pose_key in seen_poses:
+                    errors.append(f"Accessory/{resource.resource_id}: duplicate pose '{pose.pose_id}'.")
+                seen_poses.add(pose_key)
+                if not pose.texture:
+                    errors.append(f"Accessory/{resource.resource_id}/{pose.pose_id}: Normal PNG is required.")
+                else:
+                    self._validate_texture_path(pose.texture, errors)
+                    self._validate_accessory_crop(pose.texture, errors)
+                if pose.back_texture:
+                    self._validate_texture_path(pose.back_texture, errors)
+                    self._validate_accessory_crop(pose.back_texture, errors)
+                seen_variations = {"normal"}
+                for variation, texture in pose.variations.items():
+                    if not valid_id(variation) or variation.casefold() in seen_variations:
+                        errors.append(f"Accessory/{resource.resource_id}/{pose.pose_id}: invalid or duplicate variation '{variation}'.")
+                    seen_variations.add(variation.casefold())
+                    self._validate_texture_path(texture, errors)
+                    self._validate_accessory_crop(texture, errors)
+                    if variation in pose.back_variations:
+                        self._validate_texture_path(pose.back_variations[variation], errors)
+                        self._validate_accessory_crop(pose.back_variations[variation], errors)
+                for variation in pose.back_variations:
+                    if variation not in pose.variations:
+                        errors.append(f"Accessory/{resource.resource_id}/{pose.pose_id}: Back layer has no Front for '{variation}'.")
+
+        # Nipples are fixed-size textures; never crop or resize them.
+        seen_nipple_ids = set()
+        for resource in self.nipple_data:
+            total_resources += 1
+            self._validate_resource_id("Nipples", resource.resource_id, seen_nipple_ids, errors)
+            if not resource.poses:
+                errors.append(f"Nipples/{resource.resource_id}: no poses found.")
+            seen_poses = set()
+            for pose in resource.poses:
+                if not pose.pose_id.strip() or len(pose.pose_id) > 128 or pose.pose_id.casefold() in seen_poses:
+                    errors.append(f"Nipples/{resource.resource_id}: invalid/duplicate pose '{pose.pose_id}'.")
+                seen_poses.add(pose.pose_id.casefold())
+                if not pose.right or not pose.left:
+                    errors.append(f"Nipples/{resource.resource_id}/{pose.pose_id}: NippleRight.png and NippleLeft.png are both required.")
+                else:
+                    self._validate_texture_path(pose.right, errors)
+                    self._validate_texture_path(pose.left, errors)
 
         # Pubic hair
         seen_pubic_ids = set()
@@ -3113,6 +3843,14 @@ class ManifestHelperApp(tk.Tk):
 
         seen_ids.add(folded)
 
+    def _validate_accessory_crop(self, texture: str, errors: List[str]):
+        if not self.root_path or not texture or not (self.root_path / Path(texture)).is_file():
+            return
+        try:
+            self._get_crop_info(texture)
+        except (OSError, PngCropError) as exc:
+            errors.append(f"Cannot auto-crop accessory texture {texture}: {exc}")
+
     def _validate_multipart_crop(self, texture: str, errors: List[str]):
         if not texture or not self.root_path:
             return
@@ -3172,7 +3910,7 @@ class ManifestHelperApp(tk.Tk):
             messagebox.showinfo(APP_TITLE, "Choose a mod folder first.")
             return
 
-        self._warm_crop_cache_with_progress("Preparing multipart textures")
+        self._warm_crop_cache_with_progress("Preparing cropped textures")
         ok, errors, warnings = self.validate_manifest()
 
         if not ok:
@@ -3220,7 +3958,7 @@ class ManifestHelperApp(tk.Tk):
             messagebox.showinfo(APP_TITLE, "Choose a mod folder first.")
             return
 
-        self._warm_crop_cache_with_progress("Preparing multipart textures")
+        self._warm_crop_cache_with_progress("Preparing cropped textures")
         ok, errors, warnings = self.validate_manifest()
 
         if not ok:
@@ -3262,7 +4000,7 @@ class ManifestHelperApp(tk.Tk):
         output_path = Path(output).resolve()
 
         try:
-            crop_infos = self._collect_multipart_crop_infos()
+            crop_infos = self._collect_all_crop_infos()
 
             files_to_pack = []
 
@@ -3301,7 +4039,7 @@ class ManifestHelperApp(tk.Tk):
                         relative = to_posix_relative(file_path, self.root_path)
 
                         if relative in crop_infos:
-                            phase = "Cropping + packing multipart PNGs"
+                            phase = "Cropping + packing cosmetic PNGs"
                         else:
                             phase = "Packing mod files"
 
