@@ -94,6 +94,12 @@ BoobRight
 BoobLeft
 
 
+===== Nipples =====
+--- All ---
+NippleLeft
+NippleRight
+
+
 ===== Head =====
 --- Default ---
 Head
@@ -141,8 +147,26 @@ ClothSocks
 
 ===== Shoes =====
 --- Default ---
-ClothShoes
+ClothShoeRight
+ClothShoeLeft
+
+===== Gloves =====
+--- Default ---
+ClothGloveRight
+ClothGloveLeft
 
 
+===== Accessories =====
 
+
+[Head] 1. On head (hat, cat ears, ...) [above all]
+
+[Face1] 2. On face1 (glasses, hair pin, ...) [above all] Priority1
+[Face2] 3. On face2 (glasses, face mask, blindfold, ...) [bellow hair] Priority2
+[Face3] 4. On face3 (makeup, scars, ...) [bellow hair and eyes] Priority3
+
+[Back1] 5. Behind back upper (wings, backpack, ...) [behind all]
+[Back2] 6. Behind back lower (tail, ...) [behind Back1]
+
+[Neck] 7. On neck (collar, ...) [behind clothes]
 
